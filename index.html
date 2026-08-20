@@ -1,0 +1,1470 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0C0E12">
+<meta name="description" content="Osobný taxameter – GPS počítadlo kilometrov, čakanie a plánovač jázd.">
+<title>Taxameter</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" type="image/png" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Taxameter">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chivo+Mono:wght@400;500;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0C0E12; --panel:#14171E; --panel2:#191D27; --line:#242A36;
+  --ink:#F3F0E7; --muted:#8D95A6;
+  --amber:#FFB824; --amber2:#D89A10; --amber-dim:#5C4A15;
+  --blue:#5CA8FF; --red:#FF6257; --ok:#3FD483;
+  --mono:'Chivo Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;
+  --sans:'Instrument Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{
+  margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans);
+  height:100dvh; display:flex; flex-direction:column; overscroll-behavior:none;
+}
+button{font-family:var(--sans); cursor:pointer;}
+input,select,textarea{font-family:var(--sans);}
+
+/* ---------- top bar ---------- */
+.top{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:calc(8px + var(--sat)) 14px 8px 14px;
+  border-bottom:1px solid var(--line); background:var(--bg); flex:none;
+}
+.brand{font-family:var(--mono); font-size:12px; font-weight:700; letter-spacing:.22em; color:var(--ink); display:flex; align-items:center; gap:8px;}
+.brand-dot{width:8px; height:8px; border-radius:3px; background:var(--amber); box-shadow:0 0 10px rgba(255,184,36,.6); display:inline-block;}
+.chip{
+  font-family:var(--mono); font-size:11px; letter-spacing:.06em;
+  border:1px solid var(--line); border-radius:999px; padding:4px 10px; color:var(--muted); background:var(--panel);
+}
+.chip.ok{color:var(--ok); border-color:#1E4A34;}
+.chip.warn{color:var(--red); border-color:#4A231E;}
+
+/* ---------- layout ---------- */
+main{flex:1; min-height:0; display:flex;}
+.view{flex:1; min-height:0; display:flex; flex-direction:column;}
+.view.scroll{overflow-y:auto; padding:14px 14px calc(14px + var(--sab)); gap:12px; display:block;}
+[hidden]{display:none !important;}
+.eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:.28em; text-transform:uppercase; color:var(--muted); margin:0 0 10px;}
+
+/* ---------- fare instrument ---------- */
+.fare{
+  flex:none; padding:10px 16px 0; text-align:center;
+  background:linear-gradient(180deg,#171B23 0%, #10131A 100%);
+  border-bottom:1px solid var(--line);
+}
+.fare-label{font-family:var(--mono); font-size:10px; letter-spacing:.32em; color:var(--muted);}
+.fare-amount{
+  font-family:var(--mono); font-weight:700; font-variant-numeric:tabular-nums;
+  font-size:clamp(46px, 15vw, 68px); line-height:1.05; color:var(--amber);
+  text-shadow:0 0 22px rgba(255,184,36,.32);
+  display:flex; align-items:baseline; justify-content:center; gap:8px;
+}
+.fare-cur{font-size:.42em; font-weight:500; color:var(--amber2);}
+.fare-state{font-size:12px; color:var(--muted); margin-top:2px; min-height:16px; letter-spacing:.04em;}
+.fare.waiting .fare-amount{color:var(--blue); text-shadow:0 0 22px rgba(92,168,255,.35); animation:pulse 2.4s ease-in-out infinite;}
+.fare.waiting .fare-state{color:var(--blue); font-weight:600;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+.instr{display:grid; grid-template-columns:1fr 1fr 1fr; margin-top:8px; border-top:1px solid var(--line);}
+.instr .cell{padding:7px 4px 9px; border-left:1px solid var(--line);}
+.instr .cell:first-child{border-left:none;}
+.cell-v{font-family:var(--mono); font-weight:600; font-size:17px; font-variant-numeric:tabular-nums;}
+.cell-v.wait-on{color:var(--blue);}
+.cell-l{font-family:var(--mono); font-size:9px; letter-spacing:.22em; text-transform:uppercase; color:var(--muted); margin-top:2px;}
+
+/* ---------- destination bar ---------- */
+.destbar{flex:none; display:flex; gap:8px; align-items:center; padding:8px 12px 4px;}
+.ac-host{flex:1; min-width:0; color-scheme:dark;}
+.ac-host gmp-place-autocomplete{width:100%;}
+.inp{
+  width:100%; background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  color:var(--ink); padding:11px 12px; font-size:15px; outline:none;
+}
+.inp:focus{border-color:var(--amber-dim);}
+.icon-btn{
+  flex:none; width:42px; height:42px; border-radius:12px; border:1px solid var(--line);
+  background:var(--panel); color:var(--muted); font-size:16px; line-height:1;
+}
+.dest-chip{
+  flex:1; min-width:0; display:flex; align-items:center; gap:8px;
+  background:var(--panel2); border:1px solid var(--amber-dim); border-radius:12px; padding:10px 12px;
+}
+.dest-chip .txt{flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:14px;}
+.dest-chip .pin{color:var(--amber); flex:none;}
+.route-info{flex:none; font-family:var(--mono); font-size:12px; color:var(--amber2); padding:2px 16px 6px; letter-spacing:.04em;}
+
+/* ---------- map ---------- */
+.mapwrap{flex:1; min-height:160px; position:relative; background:#0E1015;}
+#map{position:absolute; inset:0;}
+.map-empty{
+  position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:6px; text-align:center; color:var(--muted); padding:24px; font-size:14px;
+}
+.map-empty strong{color:var(--ink);}
+.map-tools{position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:8px; z-index:5;}
+.map-btn{
+  width:42px; height:42px; border-radius:50%; border:1px solid var(--line);
+  background:rgba(20,23,30,.92); color:var(--ink); font-size:17px; box-shadow:0 2px 10px rgba(0,0,0,.45);
+}
+.map-btn.on{border-color:var(--amber); color:var(--amber);}
+.fs-pill{
+  position:fixed; top:calc(10px + var(--sat)); left:12px; right:12px; z-index:60;
+  display:flex; align-items:center; gap:12px;
+  background:rgba(12,14,18,.92); border:1px solid var(--line); border-radius:16px;
+  padding:8px 12px; backdrop-filter:blur(6px);
+}
+.fs-pill.waiting{border-color:var(--blue);}
+.fs-fare{font-family:var(--mono); font-weight:700; font-size:22px; color:var(--amber); font-variant-numeric:tabular-nums;}
+.fs-pill.waiting .fs-fare{color:var(--blue);}
+.fs-sub{font-family:var(--mono); font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums;}
+.fs-spacer{flex:1;}
+.fs-btn{height:36px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--ink); padding:0 12px; font-size:13px; font-weight:600;}
+.fs-btn.wait.on{background:var(--blue); border-color:var(--blue); color:#071523;}
+
+/* ---------- control deck ---------- */
+.deck{flex:none; padding:10px 14px calc(10px + var(--sab)); display:flex; flex-direction:column; gap:10px; background:var(--bg);}
+.btn{
+  border:none; border-radius:16px; font-weight:600; font-size:16px; color:var(--ink);
+  background:var(--panel2); border:1px solid var(--line);
+}
+.btn:active{transform:scale(.985);}
+.btn.big{height:58px; font-size:17px;}
+.btn.amber{background:linear-gradient(180deg,#FFC94F 0%, #F0A400 100%); border:none; color:#231A02; font-weight:700; box-shadow:0 4px 18px rgba(240,164,0,.25);}
+.btn.blue{background:#152A45; border:1px solid #2C4B74; color:var(--blue);}
+.btn.blue.on{background:var(--blue); border-color:var(--blue); color:#071523;}
+.btn.red{background:#3A1512; border:1px solid #63251E; color:#FF9A8F;}
+.btn.ghost{background:transparent; border:1px solid var(--line); color:var(--ink);}
+.btn.sm{height:38px; font-size:13px; border-radius:10px; padding:0 12px;}
+.triprow{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+
+/* ---------- tab bar ---------- */
+.tabbar{
+  flex:none; display:grid; grid-template-columns:repeat(4,1fr);
+  border-top:1px solid var(--line); background:var(--bg); padding-bottom:var(--sab);
+}
+.tab{
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  background:none; border:none; padding:9px 4px 7px; color:var(--muted);
+}
+.tab svg{width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round;}
+.tab span{font-size:10px; font-weight:600; letter-spacing:.02em;}
+.tab.active{color:var(--amber);}
+
+/* ---------- cards, lists ---------- */
+.card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; margin-bottom:10px;}
+.card .rowline{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
+.card .time{font-family:var(--mono); font-weight:700; color:var(--amber); font-size:15px;}
+.card .title{font-weight:600; font-size:15px; flex:1; min-width:0;}
+.card .meta{color:var(--muted); font-size:12.5px; margin-top:3px; line-height:1.45;}
+.card .actions{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
+.grouphead{
+  display:flex; justify-content:space-between; align-items:baseline;
+  font-family:var(--mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--muted); margin:16px 2px 8px;
+}
+.grouphead .sum{color:var(--ink); letter-spacing:.04em; font-size:13px;}
+.empty{color:var(--muted); text-align:center; padding:26px 10px; font-size:14px; line-height:1.5;}
+
+/* ---------- calendar ---------- */
+.calhead{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+.calhead .mon{font-family:var(--mono); font-weight:700; font-size:15px; letter-spacing:.06em; text-transform:capitalize;}
+.calnav{width:38px; height:38px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--ink); font-size:16px;}
+.calgrid{display:grid; grid-template-columns:repeat(7,1fr); gap:4px;}
+.dow{text-align:center; font-family:var(--mono); font-size:10px; color:var(--muted); padding:4px 0; letter-spacing:.1em;}
+.day{
+  position:relative; aspect-ratio:1; border-radius:10px; border:none; background:transparent;
+  color:var(--ink); font-size:14px; display:flex; align-items:center; justify-content:center;
+}
+.day.other{color:var(--muted); opacity:.35;}
+.day.today{outline:1px solid var(--amber-dim); outline-offset:-1px;}
+.day.sel{background:var(--amber); color:#231A02; font-weight:700;}
+.day .dot{position:absolute; bottom:5px; left:50%; transform:translateX(-50%); width:5px; height:5px; border-radius:50%; background:var(--amber);}
+.day.sel .dot{background:#231A02;}
+
+/* ---------- forms ---------- */
+.field{margin-bottom:12px;}
+.field label{display:block; font-size:12.5px; color:var(--muted); margin-bottom:5px;}
+.field .hint{font-size:11.5px; color:var(--muted); margin-top:5px; line-height:1.45;}
+.frow{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+
+/* ---------- dialogs, toast ---------- */
+dialog{
+  background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:18px;
+  padding:18px; width:min(430px, 92vw); max-height:86dvh; overflow-y:auto;
+}
+dialog::backdrop{background:rgba(4,5,8,.66);}
+dialog h3{margin:0 0 12px; font-size:17px;}
+.sumrow{display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px;}
+.sumrow .v{font-family:var(--mono); font-variant-numeric:tabular-nums;}
+.sumrow.total{border-bottom:none; padding-top:12px; align-items:baseline;}
+.sumrow.total .v{font-size:28px; font-weight:700; color:var(--amber);}
+.dlgbtns{display:flex; flex-direction:column; gap:9px; margin-top:14px;}
+.linkbtn{background:none; border:none; color:var(--muted); font-size:13px; text-decoration:underline; padding:6px;}
+.toast{
+  position:fixed; left:50%; transform:translateX(-50%); bottom:calc(86px + var(--sab)); z-index:120;
+  background:var(--panel2); border:1px solid var(--line); color:var(--ink);
+  border-radius:999px; padding:10px 18px; font-size:14px; box-shadow:0 6px 24px rgba(0,0,0,.5);
+  opacity:0; pointer-events:none; transition:opacity .25s;
+}
+.toast.show{opacity:1;}
+
+/* ---------- fullscreen map mode ---------- */
+body.fs .top, body.fs .fare, body.fs .destbar, body.fs .route-info, body.fs .deck, body.fs .tabbar{display:none;}
+body.fs .mapwrap{position:fixed; inset:0; z-index:50;}
+
+@media (prefers-reduced-motion: reduce){
+  *{animation:none !important; transition:none !important;}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="brand-dot"></span>TAXAMETER</div>
+  <span id="gpsChip" class="chip">GPS vypnuté</span>
+</header>
+
+<main>
+  <!-- ===================== TAXAMETER ===================== -->
+  <section id="view-meter" class="view">
+    <div class="fare" id="fareBox">
+      <div class="fare-label">Suma</div>
+      <div class="fare-amount"><span id="fareTotal">0,00</span><span class="fare-cur">€</span></div>
+      <div class="fare-state" id="fareState">Pripravený</div>
+      <div class="instr">
+        <div class="cell"><div class="cell-v" id="mKm">0,00</div><div class="cell-l">km</div></div>
+        <div class="cell"><div class="cell-v" id="mWait">0:00</div><div class="cell-l">čakanie</div></div>
+        <div class="cell"><div class="cell-v" id="mTime">0:00</div><div class="cell-l">trvanie</div></div>
+      </div>
+    </div>
+
+    <div class="destbar">
+      <div id="acHost" class="ac-host" hidden></div>
+      <div id="destChip" class="dest-chip" hidden>
+        <span class="pin">◉</span><span class="txt" id="destChipTxt"></span>
+      </div>
+      <button id="destClear" class="icon-btn" hidden aria-label="Zrušiť cieľ">✕</button>
+    </div>
+    <div id="routeInfo" class="route-info" hidden></div>
+
+    <div class="mapwrap" id="mapWrap">
+      <div id="map"></div>
+      <div id="mapEmpty" class="map-empty">
+        <p><strong>Mapa nie je zapnutá</strong></p>
+        <p id="mapEmptyMsg">Vlož Google API kľúč v Nastaveniach.<br>Taxameter meria aj bez mapy.</p>
+        <button class="btn ghost sm" data-goto="set">Otvoriť nastavenia</button>
+      </div>
+      <div class="map-tools" id="mapTools" hidden>
+        <button id="btnTraffic" class="map-btn on" title="Premávka" aria-label="Premávka">▤</button>
+        <button id="btnFollow" class="map-btn on" title="Sleduj moju polohu" aria-label="Sleduj moju polohu">◎</button>
+        <button id="btnFs" class="map-btn" title="Mapa na celú obrazovku" aria-label="Mapa na celú obrazovku">⛶</button>
+      </div>
+      <div id="fsPill" class="fs-pill" hidden>
+        <div>
+          <div class="fs-fare"><span id="fsTotal">0,00</span> €</div>
+          <div class="fs-sub"><span id="fsKm">0,00</span> km · <span id="fsWaitT">0:00</span></div>
+        </div>
+        <div class="fs-spacer"></div>
+        <button id="fsWaitBtn" class="fs-btn wait" hidden>Čakanie</button>
+        <button id="fsExit" class="fs-btn" aria-label="Zavrieť celú obrazovku">✕</button>
+      </div>
+    </div>
+
+    <div class="deck">
+      <button id="btnStart" class="btn big amber">Štart tripu</button>
+      <div id="tripBtns" class="triprow" hidden>
+        <button id="btnWait" class="btn big blue">Čakanie</button>
+        <button id="btnEnd" class="btn big red">Ukončiť trip</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PLÁNOVAČ ===================== -->
+  <section id="view-plan" class="view scroll" hidden>
+    <p class="eyebrow">Plánovač jázd</p>
+    <div class="calhead">
+      <button id="calPrev" class="calnav" aria-label="Predchádzajúci mesiac">‹</button>
+      <div class="mon" id="calMonth"></div>
+      <button id="calNext" class="calnav" aria-label="Ďalší mesiac">›</button>
+    </div>
+    <div class="calgrid" id="calGrid"></div>
+    <div style="margin-top:12px;">
+      <button id="btnAddRide" class="btn big amber" style="width:100%;">+ Pridať jazdu</button>
+    </div>
+    <div id="planList"></div>
+  </section>
+
+  <!-- ===================== HISTÓRIA ===================== -->
+  <section id="view-hist" class="view scroll" hidden>
+    <p class="eyebrow">História jázd</p>
+    <div style="display:flex; gap:8px; margin-bottom:6px;">
+      <button id="btnCsv" class="btn ghost sm" style="flex:1;">Export CSV</button>
+      <button id="btnClearHist" class="btn ghost sm" style="flex:1;">Vymazať všetko</button>
+    </div>
+    <div id="histList"></div>
+  </section>
+
+  <!-- ===================== NASTAVENIA ===================== -->
+  <section id="view-set" class="view scroll" hidden>
+    <p class="eyebrow">Nastavenia</p>
+    <div class="card">
+      <div class="frow">
+        <div class="field">
+          <label for="setRateKm">Cena za km (€)</label>
+          <input id="setRateKm" class="inp" type="number" inputmode="decimal" step="0.01" min="0">
+        </div>
+        <div class="field">
+          <label for="setRateWait">Čakanie za hodinu (€)</label>
+          <input id="setRateWait" class="inp" type="number" inputmode="decimal" step="0.01" min="0">
+        </div>
+      </div>
+      <div class="field">
+        <label for="setApiKey">Google API kľúč (pre mapu)</label>
+        <input id="setApiKey" class="inp" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AIza...">
+        <div class="hint">Kľúč ostáva uložený iba v tvojom mobile. Bez kľúča appka meria km a čakanie, len sa nezobrazí mapa. Postup vytvorenia kľúča je v návode.</div>
+      </div>
+      <button id="btnSaveSet" class="btn big amber" style="width:100%;">Uložiť nastavenia</button>
+      <div class="hint" id="mapStatus" style="margin-top:10px;"></div>
+    </div>
+    <div class="card" id="installCard" hidden>
+      <div class="field" style="margin-bottom:8px;">
+        <label>Inštalácia</label>
+        <div class="hint" style="margin-top:0;">Pridaj si appku na plochu, aby fungovala ako samostatná aplikácia.</div>
+      </div>
+      <button id="btnInstall" class="btn ghost sm" style="width:100%;">Nainštalovať na plochu</button>
+    </div>
+    <div class="card">
+      <div class="field" style="margin-bottom:0;">
+        <label>Tipy</label>
+        <div class="hint" style="margin-top:0;">
+          Počas tripu drž appku na obrazovke – obrazovka sama nezhasne. Pri čakaní sa km nerátajú, ani keď jazdíš.
+          Pre plnú hlasovú navigáciu použi rozdelenú obrazovku s Google Maps – táto appka nech ostane viditeľná v druhej polovici.
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar">
+  <button class="tab active" data-view="meter">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 13l3.5-3.5"/><path d="M9 3h6"/></svg>
+    <span>Taxameter</span>
+  </button>
+  <button class="tab" data-view="plan">
+    <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+    <span>Plánovač</span>
+  </button>
+  <button class="tab" data-view="hist">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    <span>História</span>
+  </button>
+  <button class="tab" data-view="set">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.2 3h-4l-.4 2.5a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2l.4 2.5h4l.4-2.5a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z"/></svg>
+    <span>Nastavenia</span>
+  </button>
+</nav>
+
+<!-- ===================== DIALÓGY ===================== -->
+<dialog id="dlgSummary">
+  <h3>Koniec tripu</h3>
+  <div class="sumrow"><span>Kilometre</span><span class="v" id="suKm"></span></div>
+  <div class="sumrow"><span>Za kilometre</span><span class="v" id="suKmAmt"></span></div>
+  <div class="sumrow"><span>Čakanie</span><span class="v" id="suWait"></span></div>
+  <div class="sumrow"><span>Za čakanie</span><span class="v" id="suWaitAmt"></span></div>
+  <div class="sumrow total"><span>Spolu</span><span class="v" id="suTotal"></span></div>
+  <div class="dlgbtns">
+    <button id="suSave" class="btn big amber">Uložiť do histórie</button>
+    <button id="suBack" class="btn big ghost">Späť do tripu</button>
+    <button id="suDiscard" class="linkbtn">Zahodiť bez uloženia</button>
+  </div>
+</dialog>
+
+<dialog id="dlgResume">
+  <h3>Rozbehnutý trip</h3>
+  <p style="color:var(--muted); font-size:14px; line-height:1.5; margin:0 0 6px;">
+    Appka sa zavrela počas tripu. Nájdený stav:
+  </p>
+  <div class="sumrow"><span>Kilometre</span><span class="v" id="reKm"></span></div>
+  <div class="sumrow"><span>Čakanie</span><span class="v" id="reWait"></span></div>
+  <div class="sumrow total"><span>Suma</span><span class="v" id="reTotal"></span></div>
+  <div class="dlgbtns">
+    <button id="reCont" class="btn big amber">Pokračovať v tripe</button>
+    <button id="reEnd" class="btn big ghost">Ukončiť a spočítať</button>
+    <button id="reDrop" class="linkbtn">Zahodiť trip</button>
+  </div>
+</dialog>
+
+<dialog id="dlgRide">
+  <h3 id="rideTitle">Nová jazda</h3>
+  <div class="frow">
+    <div class="field">
+      <label for="riDate">Dátum</label>
+      <input id="riDate" class="inp" type="date">
+    </div>
+    <div class="field">
+      <label for="riTime">Čas</label>
+      <input id="riTime" class="inp" type="time">
+    </div>
+  </div>
+  <div class="field">
+    <label for="riFrom">Odkiaľ</label>
+    <input id="riFrom" class="inp" type="text" placeholder="Adresa vyzdvihnutia">
+  </div>
+  <div class="field">
+    <label for="riTo">Kam</label>
+    <input id="riTo" class="inp" type="text" placeholder="Cieľová adresa">
+  </div>
+  <div class="field">
+    <label for="riClient">Zákazník / telefón</label>
+    <input id="riClient" class="inp" type="text" placeholder="Meno, číslo…">
+  </div>
+  <div class="field">
+    <label for="riNote">Poznámka</label>
+    <input id="riNote" class="inp" type="text" placeholder="Napr. 2 osoby, batožina…">
+  </div>
+  <div class="dlgbtns">
+    <button id="riSave" class="btn big amber">Uložiť jazdu</button>
+    <button id="riCancel" class="linkbtn">Zrušiť</button>
+  </div>
+</dialog>
+
+<dialog id="dlgConfirm">
+  <h3 id="cfTitle"></h3>
+  <p id="cfMsg" style="color:var(--muted); font-size:14px; line-height:1.5; margin:0;"></p>
+  <div class="dlgbtns">
+    <button id="cfYes" class="btn big red">Áno</button>
+    <button id="cfNo" class="linkbtn">Zrušiť</button>
+  </div>
+</dialog>
+
+<div id="toast" class="toast"></div>
+<script>
+'use strict';
+/* ============================================================
+   TAXAMETER – osobný taxameter (PWA)
+   Časť A: pomocníky, úložisko, merací engine
+   ============================================================ */
+
+// ---------- pomocníky ----------
+function $(s){ return document.querySelector(s); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); }
+function p2(n){ return (n<10?'0':'')+n; }
+function fmtEur(n){ return (Math.round(n*100)/100).toLocaleString('sk-SK',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtKmV(n){ return n.toLocaleString('sk-SK',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtDur(ms){
+  var s=Math.floor(ms/1000), h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
+  return h>0 ? (h+':'+p2(m)+':'+p2(ss)) : (m+':'+p2(ss));
+}
+function ymd(d){ return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate()); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+var toastT=null;
+function toast(msg){
+  var el=$('#toast'); el.textContent=msg; el.classList.add('show');
+  if(toastT) clearTimeout(toastT);
+  toastT=setTimeout(function(){ el.classList.remove('show'); }, 2600);
+}
+
+// ---------- úložisko ----------
+var store={
+  get:function(k,d){ try{ var v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } },
+  set:function(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} },
+  del:function(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+var settings=store.get('tx_settings',{rateKm:1.00, rateWait:10.00, apiKey:''});
+var histData=store.get('tx_history',[]);
+var plans=store.get('tx_plans',[]);
+
+// ---------- stav tripu ----------
+var trip=null;        // {startedAt, km, waitMs, waiting, waitStartedAt, rateKm, rateWait, destText, ended}
+var lastFix=null;     // kotva pre meranie vzdialenosti
+var curFix=null;      // posledná známa poloha (pre mapu)
+var watchId=null;
+var wakeLock=null;
+var geoDeniedShown=false;
+var pendingEnd=null;
+
+var ACC_MAX=35;       // m – horšiu presnosť nemeriame
+var VMAX=62;          // m/s (~223 km/h) – rýchlejší skok = chyba GPS
+
+function havM(a,b){
+  var R=6371000, dLa=(b.lat-a.lat)*Math.PI/180, dLo=(b.lng-a.lng)*Math.PI/180;
+  var la1=a.lat*Math.PI/180, la2=b.lat*Math.PI/180;
+  var x=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(la1)*Math.cos(la2)*Math.sin(dLo/2)*Math.sin(dLo/2);
+  return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+
+function currentWaitMs(){
+  if(!trip) return 0;
+  return trip.waitMs + (trip.waiting ? (Date.now()-trip.waitStartedAt) : 0);
+}
+function fareParts(){
+  var kmAmt=trip.km*trip.rateKm;
+  var wMs=currentWaitMs();
+  var waitAmt=(wMs/3600000)*trip.rateWait;
+  return {kmAmt:kmAmt, waitAmt:waitAmt, wMs:wMs, total:kmAmt+waitAmt};
+}
+
+function persistTrip(){ if(trip) store.set('tx_activeTrip',trip); }
+function clearTripStore(){ store.del('tx_activeTrip'); }
+
+// ---------- GPS ----------
+function ensureWatch(){
+  if(watchId!=null) return;
+  if(!('geolocation' in navigator)){ setGpsChip(null,'GPS nedostupné',true); return; }
+  watchId=navigator.geolocation.watchPosition(onFix,onGeoErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
+  setGpsChip(null,'GPS hľadá…',false);
+}
+function onGeoErr(e){
+  if(e && e.code===1){
+    setGpsChip(null,'GPS zamietnuté',true);
+    if(!geoDeniedShown){ geoDeniedShown=true; toast('Povoľ appke prístup k polohe v prehliadači.'); }
+  }else{
+    setGpsChip(null,'GPS chyba',true);
+  }
+}
+function setGpsChip(acc,txt,warn){
+  var c=$('#gpsChip');
+  if(acc!=null){
+    c.textContent='GPS ±'+Math.round(acc)+' m';
+    c.className='chip'+(acc<=25?' ok':'');
+  }else{
+    c.textContent=txt;
+    c.className='chip'+(warn?' warn':'');
+  }
+}
+
+function onFix(pos){
+  var c=pos.coords;
+  var fix={
+    lat:c.latitude, lng:c.longitude,
+    t:(pos.timestamp||Date.now()),
+    acc:(typeof c.accuracy==='number'?c.accuracy:999),
+    head:(typeof c.heading==='number'&&!isNaN(c.heading))?c.heading:null,
+    spd:(typeof c.speed==='number'&&!isNaN(c.speed))?c.speed:null
+  };
+  curFix=fix;
+  setGpsChip(fix.acc,null,false);
+  updateMyMarker(fix);
+  if(trip && !trip.ended){
+    if(trip.waiting){
+      lastFix=fix;                       // počas čakania sa kotva len posúva, km sa nepridávajú
+    }else if(fix.acc<=ACC_MAX){
+      if(!lastFix){
+        lastFix=fix;
+      }else{
+        var d=havM(lastFix,fix);
+        var dt=Math.max(0.001,(fix.t-lastFix.t)/1000);
+        var v=d/dt;
+        var minStep=Math.max(4, fix.acc*0.35);
+        if(v>VMAX || d>2500){
+          lastFix=fix;                   // nereálny skok – ignoruj vzdialenosť
+        }else if(d>=minStep){
+          trip.km+=d/1000;
+          lastFix=fix;
+        }
+      }
+    }
+    renderMeter();
+  }
+  maybeRouteCheck(fix);
+}
+
+// ---------- wake lock (obrazovka nezhasne) ----------
+function requestWake(){
+  try{
+    if('wakeLock' in navigator){
+      navigator.wakeLock.request('screen').then(function(wl){
+        wakeLock=wl;
+        wl.addEventListener('release',function(){ wakeLock=null; });
+      }).catch(function(){});
+    }
+  }catch(e){}
+}
+function releaseWake(){ try{ if(wakeLock){ wakeLock.release(); wakeLock=null; } }catch(e){} }
+
+// ---------- životný cyklus tripu ----------
+function startTrip(){
+  if(trip) return;
+  trip={
+    startedAt:Date.now(), km:0, waitMs:0, waiting:false, waitStartedAt:null,
+    rateKm:settings.rateKm, rateWait:settings.rateWait,
+    destText:(typeof destination!=='undefined'&&destination)?destination.text:'',
+    ended:false
+  };
+  lastFix=null;
+  pendingEnd=null;
+  ensureWatch();
+  requestWake();
+  persistTrip();
+  renderTripUI();
+  renderMeter();
+  toast('Trip beží. Šťastnú cestu!');
+}
+
+function toggleWait(){
+  if(!trip || trip.ended) return;
+  if(!trip.waiting){
+    trip.waiting=true;
+    trip.waitStartedAt=Date.now();
+  }else{
+    trip.waitMs += Date.now()-trip.waitStartedAt;
+    trip.waiting=false;
+    trip.waitStartedAt=null;
+    lastFix=null;                        // nová kotva – jazda počas čakania sa nezaráta
+  }
+  persistTrip();
+  renderTripUI();
+  renderMeter();
+}
+
+function endTrip(){
+  if(!trip) return;
+  if(trip.waiting){
+    trip.waitMs += Date.now()-trip.waitStartedAt;
+    trip.waiting=false;
+    trip.waitStartedAt=null;
+  }
+  trip.ended=true;
+  persistTrip();
+  var f=fareParts();
+  pendingEnd={
+    id:uid(), startedAt:trip.startedAt, endedAt:Date.now(),
+    km:trip.km, waitMs:f.wMs, rateKm:trip.rateKm, rateWait:trip.rateWait,
+    kmAmt:f.kmAmt, waitAmt:f.waitAmt, total:f.total, dest:trip.destText||''
+  };
+  $('#suKm').textContent=fmtKmV(pendingEnd.km)+' km × '+fmtEur(pendingEnd.rateKm)+' €';
+  $('#suKmAmt').textContent=fmtEur(pendingEnd.kmAmt)+' €';
+  $('#suWait').textContent=fmtDur(pendingEnd.waitMs)+' × '+fmtEur(pendingEnd.rateWait)+' €/h';
+  $('#suWaitAmt').textContent=fmtEur(pendingEnd.waitAmt)+' €';
+  $('#suTotal').textContent=fmtEur(pendingEnd.total)+' €';
+  renderTripUI();
+  $('#dlgSummary').showModal();
+}
+
+function finishSave(){
+  if(!pendingEnd) return;
+  histData.unshift(pendingEnd);
+  store.set('tx_history',histData);
+  afterTripClosed('Jazda uložená do histórie.');
+}
+function finishDiscard(){
+  afterTripClosed('Trip zahodený.');
+}
+function afterTripClosed(msg){
+  pendingEnd=null;
+  trip=null;
+  lastFix=null;
+  clearTripStore();
+  releaseWake();
+  renderTripUI();
+  renderMeter();
+  toast(msg);
+}
+function backToTrip(){
+  if(!trip) return;
+  trip.ended=false;
+  pendingEnd=null;
+  persistTrip();
+  renderTripUI();
+}
+
+// ---------- vykresľovanie merača ----------
+function renderMeter(){
+  var total=0, km=0, wMs=0, dur=0;
+  if(trip){
+    var f=fareParts();
+    total=f.total; km=trip.km; wMs=f.wMs; dur=Date.now()-trip.startedAt;
+  }
+  $('#fareTotal').textContent=fmtEur(total);
+  $('#mKm').textContent=fmtKmV(km);
+  $('#mWait').textContent=fmtDur(wMs);
+  $('#mTime').textContent=fmtDur(dur);
+  $('#fsTotal').textContent=fmtEur(total);
+  $('#fsKm').textContent=fmtKmV(km);
+  $('#fsWaitT').textContent=fmtDur(wMs);
+}
+
+function renderTripUI(){
+  var active=!!trip && !trip.ended;
+  var waiting=active && trip.waiting;
+  $('#btnStart').hidden=!!trip;
+  $('#tripBtns').hidden=!trip || trip.ended;
+  var bw=$('#btnWait');
+  bw.textContent=waiting?'Koniec čakania':'Čakanie';
+  bw.classList.toggle('on',waiting);
+  $('#fareBox').classList.toggle('waiting',waiting);
+  $('#mWait').classList.toggle('wait-on',waiting);
+  var st=$('#fareState');
+  if(!trip){ st.textContent='Pripravený'; }
+  else if(trip.ended){ st.textContent='Trip ukončený'; }
+  else if(waiting){ st.textContent='ČAKANIE BEŽÍ · km sa nerátajú'; }
+  else{ st.textContent='Trip beží · '+fmtEur(trip.rateKm)+' €/km'; }
+  var fw=$('#fsWaitBtn');
+  fw.hidden=!active;
+  fw.textContent=waiting?'Koniec čakania':'Čakanie';
+  fw.classList.toggle('on',waiting);
+  $('#fsPill').classList.toggle('waiting',waiting);
+}
+
+/* ============================================================
+   Časť B: Google mapa, cieľ a trasa
+   ============================================================ */
+var gmapsReady=false, map=null, myMarker=null, trafficLayer=null;
+var follow=true, trafficOn=true;
+var destination=null;          // {text, lat, lng}  (lat môže byť null bez mapy)
+var pendingDestText=null;
+var acMounted=false;
+var routePath=[], routePoly=null, routeCasing=null;
+var lastRouteAt=0, lastOffCheck=0, offCount=0, routeBusy=false;
+
+var NIGHT=[
+  {elementType:'geometry',stylers:[{color:'#242f3e'}]},
+  {elementType:'labels.text.stroke',stylers:[{color:'#242f3e'}]},
+  {elementType:'labels.text.fill',stylers:[{color:'#746855'}]},
+  {featureType:'administrative.locality',elementType:'labels.text.fill',stylers:[{color:'#d59563'}]},
+  {featureType:'poi',elementType:'labels.text.fill',stylers:[{color:'#d59563'}]},
+  {featureType:'poi.park',elementType:'geometry',stylers:[{color:'#263c3f'}]},
+  {featureType:'poi.park',elementType:'labels.text.fill',stylers:[{color:'#6b9a76'}]},
+  {featureType:'road',elementType:'geometry',stylers:[{color:'#38414e'}]},
+  {featureType:'road',elementType:'geometry.stroke',stylers:[{color:'#212a37'}]},
+  {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#9ca5b3'}]},
+  {featureType:'road.highway',elementType:'geometry',stylers:[{color:'#746855'}]},
+  {featureType:'road.highway',elementType:'geometry.stroke',stylers:[{color:'#1f2835'}]},
+  {featureType:'road.highway',elementType:'labels.text.fill',stylers:[{color:'#f3d19c'}]},
+  {featureType:'transit',elementType:'geometry',stylers:[{color:'#2f3948'}]},
+  {featureType:'water',elementType:'geometry',stylers:[{color:'#17263c'}]},
+  {featureType:'water',elementType:'labels.text.fill',stylers:[{color:'#515c6d'}]}
+];
+
+function injectBootstrap(key){
+  (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})({
+    key:key, v:"weekly", language:"sk", region:"SK"
+  });
+}
+
+function setMapStatus(t){ var el=$('#mapStatus'); if(el) el.textContent=t; }
+
+async function loadMaps(){
+  var empty=$('#mapEmpty');
+  if(!settings.apiKey){
+    empty.hidden=false;
+    setMapStatus('Mapa: vypnutá (chýba API kľúč).');
+    return;
+  }
+  $('#mapEmptyMsg').textContent='Mapa sa načítava…';
+  try{
+    injectBootstrap(settings.apiKey);
+    var libMaps=await google.maps.importLibrary('maps');
+    map=new libMaps.Map($('#map'),{
+      center:{lat:48.72,lng:19.5}, zoom:8,
+      disableDefaultUI:true, clickableIcons:false,
+      styles:NIGHT, backgroundColor:'#0E1015'
+    });
+    map.addListener('dragstart',function(){ setFollow(false); });
+    trafficLayer=new google.maps.TrafficLayer();
+    if(trafficOn) trafficLayer.setMap(map);
+    await google.maps.importLibrary('marker');
+    gmapsReady=true;
+    empty.hidden=true;
+    $('#mapTools').hidden=false;
+    setMapStatus('Mapa: beží. ✓');
+    mountAutocomplete();
+    ensureWatch();
+    if(pendingDestText){ var q=pendingDestText; pendingDestText=null; setDestByText(q); }
+  }catch(e){
+    empty.hidden=false;
+    $('#mapEmptyMsg').innerHTML='Mapu sa nepodarilo načítať.<br>Skontroluj API kľúč a zapnuté API podľa návodu.';
+    setMapStatus('Mapa: chyba – '+((e&&e.message)?e.message:'neznáma')+'. Skontroluj kľúč a povolené API.');
+  }
+}
+
+function updateMyMarker(fix){
+  if(!gmapsReady||!map) return;
+  var p={lat:fix.lat,lng:fix.lng};
+  var moving=(fix.spd!=null&&fix.spd>1.2&&fix.head!=null);
+  var icon=moving?{
+    path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale:5.5, rotation:fix.head,
+    fillColor:'#FFB824', fillOpacity:1, strokeColor:'#231A02', strokeWeight:1.5
+  }:{
+    path:google.maps.SymbolPath.CIRCLE, scale:7,
+    fillColor:'#FFB824', fillOpacity:1, strokeColor:'#231A02', strokeWeight:2
+  };
+  if(!myMarker){
+    myMarker=new google.maps.Marker({map:map, position:p, icon:icon, zIndex:99});
+    map.setCenter(p); map.setZoom(16);
+  }else{
+    myMarker.setPosition(p); myMarker.setIcon(icon);
+  }
+  if(follow) map.panTo(p);
+}
+
+function setFollow(v){
+  follow=v;
+  $('#btnFollow').classList.toggle('on',v);
+  if(v&&curFix&&gmapsReady&&map){ map.panTo({lat:curFix.lat,lng:curFix.lng}); map.setZoom(Math.max(map.getZoom(),15)); }
+}
+function setTraffic(v){
+  trafficOn=v;
+  $('#btnTraffic').classList.toggle('on',v);
+  if(trafficLayer&&map) trafficLayer.setMap(v?map:null);
+}
+function setFs(on){
+  document.body.classList.toggle('fs',on);
+  $('#fsPill').hidden=!on;
+  if(gmapsReady&&map){
+    var c=map.getCenter();
+    setTimeout(function(){ google.maps.event.trigger(map,'resize'); if(c) map.setCenter(c); },80);
+  }
+}
+
+/* ---------- cieľ ---------- */
+async function mountAutocomplete(){
+  var host=$('#acHost');
+  try{
+    var places=await google.maps.importLibrary('places');
+    if(places.PlaceAutocompleteElement){
+      var el=new places.PlaceAutocompleteElement();
+      host.replaceChildren(el);
+      acMounted=true; host.hidden=false;
+      var usePlace=async function(place){
+        if(!place) return;
+        try{
+          await place.fetchFields({fields:['location','formattedAddress','displayName']});
+          var loc=place.location;
+          if(!loc){ toast('Cieľ nemá súradnice.'); return; }
+          var la=(typeof loc.lat==='function')?loc.lat():loc.lat;
+          var ln=(typeof loc.lng==='function')?loc.lng():loc.lng;
+          setDestination({text:(place.formattedAddress||place.displayName||'Cieľ'), lat:la, lng:ln});
+        }catch(err){ toast('Cieľ sa nepodarilo načítať.'); }
+      };
+      el.addEventListener('gmp-select',function(ev){
+        var p=null;
+        try{ p=ev.placePrediction?ev.placePrediction.toPlace():(ev.place||null); }catch(err){}
+        usePlace(p);
+      });
+      el.addEventListener('gmp-placeselect',function(ev){ usePlace(ev.place||null); });
+      renderDest();
+      return;
+    }
+    throw new Error('no-autocomplete');
+  }catch(e){
+    mountFallbackSearch();
+  }
+}
+
+function mountFallbackSearch(){
+  var host=$('#acHost');
+  host.innerHTML='';
+  var inp=document.createElement('input');
+  inp.className='inp'; inp.type='search'; inp.placeholder='Zadaj cieľ a stlač Enter…';
+  inp.enterKeyHint='search'; inp.id='fallbackDest';
+  inp.addEventListener('keydown',function(ev){
+    if(ev.key==='Enter'){ ev.preventDefault(); var v=inp.value.trim(); if(v) setDestByText(v); }
+  });
+  host.appendChild(inp);
+  acMounted=true; host.hidden=false;
+  renderDest();
+}
+
+async function setDestByText(q){
+  if(!gmapsReady){
+    pendingDestText=q;
+    destination={text:q, lat:null, lng:null};
+    renderDest();
+    return;
+  }
+  try{
+    var g=await google.maps.importLibrary('geocoding');
+    var gc=new g.Geocoder();
+    gc.geocode({address:q, region:'SK'},function(res,st){
+      if(st==='OK'&&res&&res[0]){
+        var l=res[0].geometry.location;
+        setDestination({text:res[0].formatted_address, lat:l.lat(), lng:l.lng()});
+      }else{
+        toast('Adresa sa nenašla: '+q);
+      }
+    });
+  }catch(e){ toast('Vyhľadávanie adresy nefunguje.'); }
+}
+
+function setDestination(d){
+  destination=d;
+  if(trip){ trip.destText=d.text; persistTrip(); }
+  renderDest();
+  computeRoute(true);
+}
+function renderDest(){
+  var chip=$('#destChip'), host=$('#acHost');
+  if(destination){
+    $('#destChipTxt').textContent=destination.text;
+    chip.hidden=false; $('#destClear').hidden=false; host.hidden=true;
+  }else{
+    chip.hidden=true; $('#destClear').hidden=true;
+    host.hidden=!acMounted;
+  }
+}
+function clearDest(){
+  destination=null; pendingDestText=null;
+  if(trip){ trip.destText=''; persistTrip(); }
+  clearRoute();
+  renderDest();
+}
+
+/* ---------- trasa ---------- */
+function decodePoly(str){
+  var pts=[], index=0, lat=0, lng=0;
+  while(index<str.length){
+    var b, shift=0, result=0;
+    do{ b=str.charCodeAt(index++)-63; result|=(b&0x1f)<<shift; shift+=5; }while(b>=0x20);
+    lat+=((result&1)?~(result>>1):(result>>1));
+    shift=0; result=0;
+    do{ b=str.charCodeAt(index++)-63; result|=(b&0x1f)<<shift; shift+=5; }while(b>=0x20);
+    lng+=((result&1)?~(result>>1):(result>>1));
+    pts.push({lat:lat/1e5, lng:lng/1e5});
+  }
+  return pts;
+}
+
+function drawRoute(path){
+  clearRouteOverlays();
+  routeCasing=new google.maps.Polyline({map:map, path:path, strokeColor:'#7A5804', strokeOpacity:0.95, strokeWeight:9, zIndex:5});
+  routePoly=new google.maps.Polyline({map:map, path:path, strokeColor:'#FFB824', strokeOpacity:1, strokeWeight:5, zIndex:6});
+}
+function clearRouteOverlays(){
+  if(routePoly){ routePoly.setMap(null); routePoly=null; }
+  if(routeCasing){ routeCasing.setMap(null); routeCasing=null; }
+}
+function clearRoute(){
+  clearRouteOverlays();
+  routePath=[]; offCount=0;
+  var ri=$('#routeInfo'); ri.hidden=true; ri.textContent='';
+}
+
+async function computeRoute(fit){
+  if(!gmapsReady||!destination||destination.lat==null||routeBusy) return;
+  var o=curFix?{lat:curFix.lat,lng:curFix.lng}:(map?{lat:map.getCenter().lat(),lng:map.getCenter().lng()}:null);
+  if(!o) return;
+  routeBusy=true;
+  try{
+    var path=null, distM=0, durS=0;
+    try{
+      var resp=await fetch('https://routes.googleapis.com/directions/v2:computeRoutes',{
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'X-Goog-Api-Key':settings.apiKey,
+          'X-Goog-FieldMask':'routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration'
+        },
+        body:JSON.stringify({
+          origin:{location:{latLng:{latitude:o.lat,longitude:o.lng}}},
+          destination:{location:{latLng:{latitude:destination.lat,longitude:destination.lng}}},
+          travelMode:'DRIVE', routingPreference:'TRAFFIC_AWARE',
+          languageCode:'sk', units:'METRIC'
+        })
+      });
+      if(!resp.ok) throw new Error('routes-http-'+resp.status);
+      var j=await resp.json();
+      var rt=j.routes&&j.routes[0];
+      if(!rt||!rt.polyline||!rt.polyline.encodedPolyline) throw new Error('routes-empty');
+      path=decodePoly(rt.polyline.encodedPolyline);
+      distM=rt.distanceMeters||0;
+      durS=parseFloat(rt.duration||'0')||0;
+    }catch(e1){
+      var rl=await google.maps.importLibrary('routes');
+      var ds=new rl.DirectionsService();
+      var r=await new Promise(function(res,rej){
+        ds.route({origin:o, destination:{lat:destination.lat,lng:destination.lng}, travelMode:'DRIVING'},
+          function(rr,st){ if(st==='OK') res(rr); else rej(new Error('directions-'+st)); });
+      });
+      var leg=r.routes[0].legs[0];
+      path=r.routes[0].overview_path.map(function(p){ return {lat:p.lat(),lng:p.lng()}; });
+      distM=leg.distance?leg.distance.value:0;
+      durS=leg.duration?leg.duration.value:0;
+    }
+    routePath=path;
+    drawRoute(path);
+    lastRouteAt=Date.now(); offCount=0;
+    var ri=$('#routeInfo');
+    ri.hidden=false;
+    ri.textContent='Do cieľa '+fmtKmV(distM/1000)+' km · '+Math.max(1,Math.round(durS/60))+' min';
+    if(fit&&path.length){
+      var b=new google.maps.LatLngBounds();
+      path.forEach(function(p){ b.extend(p); });
+      b.extend(o);
+      map.fitBounds(b,48);
+      setFollow(false);
+    }
+  }catch(e){
+    toast('Trasu sa nepodarilo vypočítať.');
+  }finally{
+    routeBusy=false;
+  }
+}
+
+function distToPath(pt,path){
+  var k=111320, cx=Math.cos(pt.lat*Math.PI/180);
+  var px=pt.lng*k*cx, py=pt.lat*k;
+  var best=1e18, i;
+  for(i=1;i<path.length;i++){
+    var ax=path[i-1].lng*k*cx, ay=path[i-1].lat*k;
+    var bx=path[i].lng*k*cx, by=path[i].lat*k;
+    var dx=bx-ax, dy=by-ay;
+    var L2=dx*dx+dy*dy;
+    var t=L2?(((px-ax)*dx+(py-ay)*dy)/L2):0;
+    if(t<0)t=0; if(t>1)t=1;
+    var qx=ax+t*dx, qy=ay+t*dy;
+    var d2=(px-qx)*(px-qx)+(py-qy)*(py-qy);
+    if(d2<best) best=d2;
+  }
+  return Math.sqrt(best);
+}
+
+function maybeRouteCheck(fix){
+  if(!gmapsReady||!destination||destination.lat==null||routePath.length<2) return;
+  var now=Date.now();
+  if(now-lastOffCheck<3000) return;
+  lastOffCheck=now;
+  var dDest=havM(fix,{lat:destination.lat,lng:destination.lng});
+  if(dDest<45){
+    var ri=$('#routeInfo'); ri.hidden=false; ri.textContent='Si pri cieli.';
+    return;
+  }
+  if(fix.spd!=null&&fix.spd<2.5) return;
+  var dmin=distToPath(fix,routePath);
+  if(dmin>60) offCount++; else offCount=0;
+  if(offCount>=2&&(now-lastRouteAt)>15000){
+    offCount=0;
+    computeRoute(false);
+  }
+}
+
+/* ============================================================
+   Časť C: plánovač, história, nastavenia, navigácia, štart
+   ============================================================ */
+
+/* ---------- plánovač ---------- */
+var planMonth=new Date(); planMonth.setDate(1);
+var planSel=null;
+var editingRideId=null;
+var DOWS=['Po','Ut','St','Št','Pi','So','Ne'];
+
+function byDT(a,b){ return ((a.date||'')+(a.time||'')).localeCompare((b.date||'')+(b.time||'')); }
+
+function labelForDate(y){
+  var t=ymd(new Date());
+  var tm=ymd(new Date(Date.now()+86400000));
+  if(y===t) return 'Dnes';
+  if(y===tm) return 'Zajtra';
+  var d=new Date(y+'T12:00:00');
+  var s=d.toLocaleDateString('sk-SK',{weekday:'long',day:'numeric',month:'long'});
+  return s.charAt(0).toUpperCase()+s.slice(1);
+}
+
+function renderCal(){
+  var y=planMonth.getFullYear(), m=planMonth.getMonth();
+  var lbl=planMonth.toLocaleDateString('sk-SK',{month:'long',year:'numeric'});
+  $('#calMonth').textContent=lbl.charAt(0).toUpperCase()+lbl.slice(1);
+  var firstIdx=(new Date(y,m,1).getDay()+6)%7;
+  var daysIn=new Date(y,m+1,0).getDate();
+  var total=Math.ceil((firstIdx+daysIn)/7)*7;
+  var dots={};
+  plans.forEach(function(p){ dots[p.date]=true; });
+  var today=ymd(new Date());
+  var html='';
+  DOWS.forEach(function(d){ html+='<div class="dow">'+d+'</div>'; });
+  var i;
+  for(i=0;i<total;i++){
+    var d=new Date(y,m,1+(i-firstIdx));
+    var dy=ymd(d);
+    var cls='day';
+    if(d.getMonth()!==m) cls+=' other';
+    if(dy===today) cls+=' today';
+    if(dy===planSel) cls+=' sel';
+    html+='<button class="'+cls+'" data-ymd="'+dy+'">'+d.getDate()+(dots[dy]?'<span class="dot"></span>':'')+'</button>';
+  }
+  $('#calGrid').innerHTML=html;
+}
+
+function rideCard(r,dim){
+  var meta=[];
+  if(r.client) meta.push(esc(r.client));
+  if(r.note) meta.push(esc(r.note));
+  return '<div class="card" data-id="'+r.id+'"'+(dim?' style="opacity:.55;"':'')+'>'
+    +'<div class="rowline"><span class="time">'+esc(r.time||'--:--')+'</span>'
+    +'<span class="title">'+esc(r.from||'—')+' → '+esc(r.to||'—')+'</span></div>'
+    +(meta.length?('<div class="meta">'+meta.join(' · ')+'</div>'):'')
+    +'<div class="actions">'
+    +'<button class="btn sm amber" data-act="go">Do taxametra</button>'
+    +'<button class="btn sm ghost" data-act="edit">Upraviť</button>'
+    +'<button class="btn sm ghost" data-act="del">Vymazať</button>'
+    +'</div></div>';
+}
+
+function renderPlanList(){
+  var el=$('#planList'), t=ymd(new Date()), html='';
+  if(planSel){
+    var items=plans.filter(function(p){ return p.date===planSel; }).sort(byDT);
+    html+='<div class="grouphead"><span>'+esc(labelForDate(planSel))+'</span><span></span></div>';
+    if(items.length){
+      items.forEach(function(r){ html+=rideCard(r, planSel<t); });
+    }else{
+      html+='<div class="empty">Na tento deň nie je nič naplánované.</div>';
+    }
+  }else{
+    var up=plans.filter(function(p){ return p.date>=t; }).sort(byDT);
+    var past=plans.filter(function(p){ return p.date<t; }).sort(byDT).reverse();
+    if(!up.length&&!past.length){
+      html='<div class="empty">Zatiaľ žiadne naplánované jazdy.<br>Pridaj prvú tlačidlom vyššie.</div>';
+    }else{
+      var curD=null;
+      up.forEach(function(r){
+        if(r.date!==curD){ curD=r.date; html+='<div class="grouphead"><span>'+esc(labelForDate(curD))+'</span><span></span></div>'; }
+        html+=rideCard(r,false);
+      });
+      if(past.length){
+        html+='<div class="grouphead"><span>Staršie</span><span class="sum">'+past.length+'</span></div>';
+        past.forEach(function(r){ html+=rideCard(r,true); });
+      }
+    }
+  }
+  el.innerHTML=html;
+}
+
+function openRideDlg(r){
+  editingRideId=r?r.id:null;
+  $('#rideTitle').textContent=r?'Upraviť jazdu':'Nová jazda';
+  $('#riDate').value=r?r.date:(planSel||ymd(new Date()));
+  $('#riTime').value=r?(r.time||''):'';
+  $('#riFrom').value=r?(r.from||''):'';
+  $('#riTo').value=r?(r.to||''):'';
+  $('#riClient').value=r?(r.client||''):'';
+  $('#riNote').value=r?(r.note||''):'';
+  $('#dlgRide').showModal();
+}
+
+function saveRide(){
+  var date=$('#riDate').value;
+  if(!date){ toast('Vyber dátum jazdy.'); return; }
+  var obj={
+    id:editingRideId||uid(),
+    date:date,
+    time:$('#riTime').value||'12:00',
+    from:$('#riFrom').value.trim(),
+    to:$('#riTo').value.trim(),
+    client:$('#riClient').value.trim(),
+    note:$('#riNote').value.trim()
+  };
+  if(editingRideId){
+    plans=plans.map(function(p){ return p.id===editingRideId?obj:p; });
+  }else{
+    plans.push(obj);
+  }
+  store.set('tx_plans',plans);
+  $('#dlgRide').close();
+  editingRideId=null;
+  renderCal(); renderPlanList();
+  toast('Jazda uložená v plánovači.');
+}
+
+/* ---------- história ---------- */
+function monthKey(ts){ var d=new Date(ts); return d.getFullYear()+'-'+p2(d.getMonth()+1); }
+function monthLabel(ts){
+  var s=new Date(ts).toLocaleDateString('sk-SK',{month:'long',year:'numeric'});
+  return s.charAt(0).toUpperCase()+s.slice(1);
+}
+function histCard(h){
+  var d=new Date(h.endedAt);
+  var when=d.toLocaleDateString('sk-SK',{day:'numeric',month:'numeric'})+' '+d.toLocaleTimeString('sk-SK',{hour:'2-digit',minute:'2-digit'});
+  var meta=fmtKmV(h.km)+' km ('+fmtEur(h.kmAmt)+' €) · čakanie '+fmtDur(h.waitMs)+' ('+fmtEur(h.waitAmt)+' €)';
+  if(h.dest) meta+=' · '+esc(h.dest);
+  return '<div class="card" data-id="'+h.id+'">'
+    +'<div class="rowline"><span class="time">'+when+'</span>'
+    +'<span class="title" style="text-align:right;font-family:var(--mono);color:var(--amber);">'+fmtEur(h.total)+' €</span></div>'
+    +'<div class="meta">'+meta+'</div>'
+    +'<div class="actions"><button class="btn sm ghost" data-act="hdel">Vymazať</button></div>'
+    +'</div>';
+}
+function renderHist(){
+  var el=$('#histList');
+  if(!histData.length){
+    el.innerHTML='<div class="empty">Zatiaľ žiadne uložené jazdy.<br>Po ukončení tripu sa jazda uloží sem.</div>';
+    return;
+  }
+  var arr=histData.slice().sort(function(a,b){ return b.endedAt-a.endedAt; });
+  var sums={};
+  arr.forEach(function(h){ var k=monthKey(h.endedAt); sums[k]=(sums[k]||0)+h.total; });
+  var html='', curKey=null;
+  arr.forEach(function(h){
+    var k=monthKey(h.endedAt);
+    if(k!==curKey){
+      curKey=k;
+      html+='<div class="grouphead"><span>'+esc(monthLabel(h.endedAt))+'</span><span class="sum">'+fmtEur(sums[k])+' €</span></div>';
+    }
+    html+=histCard(h);
+  });
+  el.innerHTML=html;
+}
+function exportCsv(){
+  if(!histData.length){ toast('História je prázdna.'); return; }
+  var rows=['Ukoncene;Start;Km;Cakanie (min);Sadzba km (EUR);Sadzba cakania (EUR/h);Za km (EUR);Za cakanie (EUR);Spolu (EUR);Ciel'];
+  histData.slice().sort(function(a,b){ return b.endedAt-a.endedAt; }).forEach(function(h){
+    rows.push([
+      new Date(h.endedAt).toLocaleString('sk-SK'),
+      new Date(h.startedAt).toLocaleString('sk-SK'),
+      h.km.toFixed(2).replace('.',','),
+      (h.waitMs/60000).toFixed(1).replace('.',','),
+      h.rateKm.toFixed(2).replace('.',','),
+      h.rateWait.toFixed(2).replace('.',','),
+      h.kmAmt.toFixed(2).replace('.',','),
+      h.waitAmt.toFixed(2).replace('.',','),
+      h.total.toFixed(2).replace('.',','),
+      String(h.dest||'').replace(/;/g,',')
+    ].join(';'));
+  });
+  var blob=new Blob(['\ufeff'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='jazdy-taxameter.csv';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },1200);
+}
+
+/* ---------- nastavenia ---------- */
+function loadSettingsUI(){
+  $('#setRateKm').value=settings.rateKm;
+  $('#setRateWait').value=settings.rateWait;
+  $('#setApiKey').value=settings.apiKey||'';
+}
+function parseNum(v,d){
+  var n=parseFloat(String(v).replace(',','.'));
+  return (isFinite(n)&&n>=0)?n:d;
+}
+function saveSettings(){
+  var nk=$('#setApiKey').value.trim();
+  var changedKey=(nk!==(settings.apiKey||''));
+  settings.rateKm=parseNum($('#setRateKm').value,settings.rateKm);
+  settings.rateWait=parseNum($('#setRateWait').value,settings.rateWait);
+  settings.apiKey=nk;
+  store.set('tx_settings',settings);
+  loadSettingsUI();
+  if(changedKey){
+    toast('Uložené. Načítavam mapu…');
+    setTimeout(function(){ location.reload(); },700);
+  }else{
+    toast('Nastavenia uložené.');
+  }
+}
+
+/* ---------- potvrdenie ---------- */
+function confirmDlg(title,msg){
+  return new Promise(function(resolve){
+    $('#cfTitle').textContent=title;
+    $('#cfMsg').textContent=msg||'';
+    var d=$('#dlgConfirm');
+    function yes(){ cleanup(); d.close(); resolve(true); }
+    function no(){ cleanup(); d.close(); resolve(false); }
+    function onCancel(){ cleanup(); resolve(false); }
+    function cleanup(){
+      $('#cfYes').removeEventListener('click',yes);
+      $('#cfNo').removeEventListener('click',no);
+      d.removeEventListener('cancel',onCancel);
+    }
+    $('#cfYes').addEventListener('click',yes);
+    $('#cfNo').addEventListener('click',no);
+    d.addEventListener('cancel',onCancel);
+    d.showModal();
+  });
+}
+
+/* ---------- navigácia medzi obrazovkami ---------- */
+var VIEWS=['meter','plan','hist','set'];
+function showView(name){
+  VIEWS.forEach(function(v){ $('#view-'+v).hidden=(v!==name); });
+  document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active',t.dataset.view===name); });
+  if(name==='plan'){ renderCal(); renderPlanList(); }
+  if(name==='hist'){ renderHist(); }
+}
+
+/* ---------- obnova rozbehnutého tripu ---------- */
+function maybeResume(){
+  var t=store.get('tx_activeTrip',null);
+  if(!t) return;
+  trip=t; trip.ended=false; lastFix=null;
+  var f=fareParts();
+  $('#reKm').textContent=fmtKmV(trip.km)+' km';
+  $('#reWait').textContent=fmtDur(f.wMs);
+  $('#reTotal').textContent=fmtEur(f.total)+' €';
+  renderTripUI(); renderMeter();
+  $('#dlgResume').showModal();
+}
+function resumeContinue(){
+  $('#dlgResume').close();
+  ensureWatch(); requestWake();
+  renderTripUI(); renderMeter();
+  toast('Pokračujem v tripe.');
+}
+
+/* ---------- udalosti ---------- */
+var deferredPrompt=null;
+function bindEvents(){
+  document.querySelectorAll('.tab').forEach(function(t){
+    t.addEventListener('click',function(){ showView(t.dataset.view); });
+  });
+  document.addEventListener('click',function(ev){
+    var g=ev.target.closest('[data-goto]');
+    if(g) showView(g.getAttribute('data-goto'));
+  });
+
+  $('#btnStart').addEventListener('click',startTrip);
+  $('#btnWait').addEventListener('click',toggleWait);
+  $('#btnEnd').addEventListener('click',endTrip);
+  $('#destClear').addEventListener('click',clearDest);
+
+  $('#btnTraffic').addEventListener('click',function(){ setTraffic(!trafficOn); });
+  $('#btnFollow').addEventListener('click',function(){ setFollow(!follow); });
+  $('#btnFs').addEventListener('click',function(){ setFs(true); });
+  $('#fsExit').addEventListener('click',function(){ setFs(false); });
+  $('#fsWaitBtn').addEventListener('click',toggleWait);
+
+  $('#suSave').addEventListener('click',function(){ $('#dlgSummary').close(); finishSave(); });
+  $('#suBack').addEventListener('click',function(){ $('#dlgSummary').close(); backToTrip(); });
+  $('#suDiscard').addEventListener('click',function(){
+    $('#dlgSummary').close();
+    confirmDlg('Zahodiť trip?','Suma sa nikam neuloží.').then(function(y){
+      if(y) finishDiscard(); else { $('#dlgSummary').showModal(); }
+    });
+  });
+  $('#dlgSummary').addEventListener('cancel',function(){ backToTrip(); });
+
+  $('#reCont').addEventListener('click',resumeContinue);
+  $('#reEnd').addEventListener('click',function(){ $('#dlgResume').close(); endTrip(); });
+  $('#reDrop').addEventListener('click',function(){
+    $('#dlgResume').close();
+    confirmDlg('Zahodiť trip?','Nameraný stav sa vymaže.').then(function(y){
+      if(y) afterTripClosed('Trip zahodený.'); else resumeContinue();
+    });
+  });
+  $('#dlgResume').addEventListener('cancel',resumeContinue);
+
+  $('#calPrev').addEventListener('click',function(){ planMonth.setMonth(planMonth.getMonth()-1); renderCal(); });
+  $('#calNext').addEventListener('click',function(){ planMonth.setMonth(planMonth.getMonth()+1); renderCal(); });
+  $('#calGrid').addEventListener('click',function(ev){
+    var b=ev.target.closest('.day'); if(!b) return;
+    var dy=b.getAttribute('data-ymd');
+    planSel=(planSel===dy)?null:dy;
+    if(dy){
+      var d=new Date(dy+'T12:00:00');
+      if(d.getMonth()!==planMonth.getMonth()||d.getFullYear()!==planMonth.getFullYear()){
+        planMonth=new Date(d.getFullYear(),d.getMonth(),1);
+      }
+    }
+    renderCal(); renderPlanList();
+  });
+  $('#btnAddRide').addEventListener('click',function(){ openRideDlg(null); });
+  $('#riSave').addEventListener('click',saveRide);
+  $('#riCancel').addEventListener('click',function(){ $('#dlgRide').close(); editingRideId=null; });
+
+  $('#planList').addEventListener('click',function(ev){
+    var b=ev.target.closest('[data-act]'); if(!b) return;
+    var card=ev.target.closest('.card'); if(!card) return;
+    var r=null, i;
+    for(i=0;i<plans.length;i++){ if(plans[i].id===card.getAttribute('data-id')){ r=plans[i]; break; } }
+    if(!r) return;
+    if(b.getAttribute('data-act')==='del'){
+      confirmDlg('Vymazať jazdu?',(r.from||'—')+' → '+(r.to||'—')).then(function(y){
+        if(y){
+          plans=plans.filter(function(p){ return p.id!==r.id; });
+          store.set('tx_plans',plans);
+          renderCal(); renderPlanList();
+        }
+      });
+    }else if(b.getAttribute('data-act')==='edit'){
+      openRideDlg(r);
+    }else if(b.getAttribute('data-act')==='go'){
+      showView('meter');
+      if(r.to){ setDestByText(r.to); toast('Cieľ z plánovača: '+r.to); }
+    }
+  });
+
+  $('#histList').addEventListener('click',function(ev){
+    var b=ev.target.closest('[data-act]'); if(!b) return;
+    var card=ev.target.closest('.card'); if(!card) return;
+    if(b.getAttribute('data-act')==='hdel'){
+      confirmDlg('Vymazať jazdu z histórie?','Záznam sa natrvalo odstráni.').then(function(y){
+        if(y){
+          histData=histData.filter(function(h){ return h.id!==card.getAttribute('data-id'); });
+          store.set('tx_history',histData);
+          renderHist();
+        }
+      });
+    }
+  });
+  $('#btnCsv').addEventListener('click',exportCsv);
+  $('#btnClearHist').addEventListener('click',function(){
+    if(!histData.length){ toast('História je prázdna.'); return; }
+    confirmDlg('Vymazať celú históriu?','Všetky uložené jazdy sa natrvalo odstránia.').then(function(y){
+      if(y){ histData=[]; store.set('tx_history',histData); renderHist(); }
+    });
+  });
+
+  $('#btnSaveSet').addEventListener('click',saveSettings);
+
+  window.addEventListener('beforeinstallprompt',function(e){
+    e.preventDefault();
+    deferredPrompt=e;
+    $('#installCard').hidden=false;
+  });
+  $('#btnInstall').addEventListener('click',function(){
+    if(!deferredPrompt) return;
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(function(){ deferredPrompt=null; $('#installCard').hidden=true; });
+  });
+
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState==='visible'){
+      if(trip&&!wakeLock) requestWake();
+      if(trip) persistTrip();
+    }else if(trip){
+      persistTrip();
+    }
+  });
+  window.addEventListener('pagehide',function(){ if(trip) persistTrip(); });
+}
+
+/* ---------- štart appky ---------- */
+var tickN=0;
+function tick(){
+  tickN++;
+  if(trip&&!trip.ended){
+    renderMeter();
+    if(tickN%3===0) persistTrip();
+  }
+}
+function init(){
+  loadSettingsUI();
+  bindEvents();
+  renderTripUI();
+  renderMeter();
+  maybeResume();
+  loadMaps();
+  if(trip){ ensureWatch(); requestWake(); }
+  setInterval(tick,1000);
+  if('serviceWorker' in navigator){
+    try{ navigator.serviceWorker.register('./sw.js').catch(function(){}); }catch(e){}
+  }
+}
+init();
+</script>
+</body>
+</html>
